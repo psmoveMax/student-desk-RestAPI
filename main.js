@@ -17,16 +17,24 @@ document.addEventListener("DOMContentLoaded", function () {
 
 
   // Этап 5. К форме добавления студента добавьте слушатель события отправки формы, в котором будет проверка введенных данных.Если проверка пройдет успешно, добавляйте объект с данными студентов в массив студентов и запустите функцию отрисовки таблицы студентов, созданную на этапе 4.
-  document.querySelector('#main_add_form').addEventListener("submit", function (e) {
+  document.querySelector('#main_add_form').addEventListener("submit", async e => {
     e.preventDefault();
     let fio = document.getElementById('fio').value.trim();
     let fakultet = document.getElementById('fakultet').value.trim();
     let date_birth = document.getElementById('date_birth').value.trim();
 
-    let date_learn = document.getElementById('date_learn').value.trim();
+    const regular_fio = /([А-Яа-я-.]+)\ ([А-Яа-я-.]+)\ ([А-Яа-я-.]+)/;
+    fio = fio.match(regular_fio);
+
+    const name = fio[1];
+    const surname = fio[2];
+    const lastname = fio[3];
+
+
+    let date_learn_orig = document.getElementById('date_learn').value.trim();
     let date_now = new Date();
     let date_student = new Date(date_birth);
-    date_learn = new Date(date_learn);
+    let date_learn = new Date(date_learn_orig);
 
     //Валидация даты рождения
     if (date_student.getFullYear() >= 1900) {
@@ -40,19 +48,30 @@ document.addEventListener("DOMContentLoaded", function () {
           year = year - 1;
         }
 
-        //Закончил или нет и какой курс
-        let course = date_now.getFullYear() - date_learn.getFullYear() + 1;
-        let learn_path;
-        if (date_now.getMonth() < 9) {
-          learn_path = `${date_learn.getFullYear()}-${date_learn.getFullYear() + 4} (${course - 1} курс)`;
-        }
 
 
-        if (course > 5) {
-          learn_path = 'закончил';
-        }
+        const response = await fetch('http://localhost:3000/api/students', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: name,
+            surname: surname,
+            lastname: lastname,
+            birthday: date_birth,
+            studyStart: date_learn_orig,
+            faculty: fakultet
+          }),
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const student = await response.json();
+
+
 
         e.target.reset();
+        cleaningTable();
+        renderStudentsTable();
         alert('Добавлен новый студент');
       } else {
         alert('Год начала обучения должен начинаться с 2000 года и не быть больше текущего года');
@@ -79,7 +98,6 @@ document.addEventListener("DOMContentLoaded", function () {
 // Этап 3. Создайте функцию вывода одного студента в таблицу, по аналогии с тем, как вы делали вывод одного дела в модуле 8. Функция должна вернуть html элемент с информацией и пользователе.У функции должен быть один аргумент - объект студента.
 
 function getStudentItem(student) {
-  console.log(student);
   let table = document.querySelector('#table_main')['tBodies'][0];
 
   let table_list = document.createElement("tr");
@@ -87,16 +105,56 @@ function getStudentItem(student) {
   let fakultet_student = document.createElement("td");
   let date_birth = document.createElement("td");
   let learn_start = document.createElement("td");
+  let delete_student_td = document.createElement("td");
+  let delete_student_btn = document.createElement("button");
+
+  delete_student_btn.innerText = '🗑';
+  delete_student_btn.classList.add('btn');
+  delete_student_btn.classList.add('btn-danger');
+  delete_student_btn.setAttribute('onclick', `deleteStudent(${student.id})`);
+  delete_student_td.append(delete_student_btn);
+
+  const date_now = new Date();
+  const birthday = new Date(student.birthday);
+  let year = date_now.getFullYear() - birthday.getFullYear();
+  let studyStart = parseInt(student.studyStart);
+  let studyEnd = studyStart + 4;
+  let studyStart_full;
+
+
+
+  //Сколько лет студенту
+  if ((date_now.getMonth() < birthday.getMonth())
+    || (date_now.getMonth() == birthday.getMonth() && birthday.getDay() > birthday.getDay())) {
+    year = year - 1;
+  }
+
+  const birthday_full = `${birthday.toLocaleDateString('ru-RU')} (${year} лет)`;
+  studyStart_full = `${studyStart}-${studyEnd}`;
+
+
+  //Закончил или нет и какой курс
+  let course = date_now.getFullYear() - studyStart + 1;
+
+  if (date_now.getMonth() < 9) {
+    studyStart_full = `${studyStart_full} (${course - 1} курс)`;
+  }
+
+
+  if (course > 5) {
+    studyStart_full = 'закончил';
+  }
 
   fio_student.innerHTML = `${student.name} ${student.surname} ${student.lastname}`;
   fakultet_student.innerHTML = `${student.faculty}`;
-  date_birth.innerHTML = `${student.birthday}`;
-  learn_start.innerHTML = `${student.studyStart}`;
+  date_birth.innerHTML = `${birthday_full}`;
+  learn_start.innerHTML = `${studyStart_full}`;
   table_list.append(fio_student);
   table_list.append(fakultet_student);
   table_list.append(date_birth);
   table_list.append(learn_start);
 
+  table_list.append(delete_student_td);
 
   table.appendChild(table_list);
 
@@ -107,16 +165,38 @@ function getStudentItem(student) {
 renderStudentsTable();
 // Этап 4. Создайте функцию отрисовки всех студентов. Аргументом функции будет массив студентов.Функция должна использовать ранее созданную функцию создания одной записи для студента.Цикл поможет вам создать список студентов.Каждый раз при изменении списка студента вы будете вызывать эту функцию для отрисовки таблицы.
 
+function cleaningTable() {
+  let count_current = document.querySelector('#table_main')['tBodies'][0].childElementCount;
+
+  if (count_current != 1) {
+    while (count_current != 1) {
+      document.querySelector('#table_main')['tBodies'][0].children[count_current - 1].remove();
+      count_current = document.querySelector('#table_main')['tBodies'][0].childElementCount;
+    }
+  }
+}
+
+
 async function renderStudentsTable() {
 
   const response = await fetch('http://localhost:3000/api/students');
   const studentList = await response.json();
 
   studentList.forEach(student => {
-    const studentElement = getStudentItem(student);
+    getStudentItem(student);
   });
 
 
+}
+
+
+async function deleteStudent(id) {
+
+  const response = await fetch(`http://localhost:3000/api/students/${id}`, {
+    method: 'DELETE'
+  });
+  cleaningTable();
+  renderStudentsTable();
 }
 
 // Этап 5. Создайте функцию сортировки массива студентов и добавьте события кликов на соответствующие колонки.
@@ -146,7 +226,6 @@ function sort_func(sort_name) {
   for (let i = 0; i < document.querySelector('#header_table').children.length; i++) {
     if (document.querySelector('#header_table').children[i].children[0].innerHTML == '▼') {
       if (id != document.querySelector('#header_table').children[i].id) {
-        //renderStudentsTable(studentsList);
         document.querySelector('#header_table').children[i].children[0].innerHTML = 'ᐁ';
       }
     }
@@ -183,14 +262,16 @@ function sort_func(sort_name) {
         document.getElementById("search_fakultet").value == '' &&
         document.getElementById("search_year_start").value == '' &&
         document.getElementById("search_year_end").value == '') {
-        renderStudentsTable(studentsList);
+        cleaningTable();
+        renderStudentsTable();
         document.querySelector('#sort_fio_activity').innerHTML = 'ᐁ';
       } else {
         document.getElementById("search_fio").value = '';
         document.getElementById("search_fakultet").value = '';
         document.getElementById("search_year_start").value = '';
         document.getElementById("search_year_end").value = '';
-        renderStudentsTable(studentsList);
+        cleaningTable();
+        renderStudentsTable();
         document.querySelector('#sort_fio_activity').innerHTML = 'ᐁ';
       }
     }
@@ -225,14 +306,16 @@ function sort_func(sort_name) {
         document.getElementById("search_fakultet").value == '' &&
         document.getElementById("search_year_start").value == '' &&
         document.getElementById("search_year_end").value == '') {
-        renderStudentsTable(studentsList);
+        cleaningTable();
+        renderStudentsTable();
         document.querySelector('#sort_fak_activity').innerHTML = 'ᐁ';
       } else {
         document.getElementById("search_fio").value = '';
         document.getElementById("search_fakultet").value = '';
         document.getElementById("search_year_start").value = '';
         document.getElementById("search_year_end").value = '';
-        renderStudentsTable(studentsList);
+        cleaningTable();
+        renderStudentsTable();
         document.querySelector('#sort_fak_activity').innerHTML = 'ᐁ';
       }
     }
@@ -271,14 +354,16 @@ function sort_func(sort_name) {
         document.getElementById("search_fakultet").value == '' &&
         document.getElementById("search_year_start").value == '' &&
         document.getElementById("search_year_end").value == '') {
-        renderStudentsTable(studentsList);
+        cleaningTable();
+        renderStudentsTable();
         document.querySelector('#sort_birth_activity').innerHTML = 'ᐁ';
       } else {
         document.getElementById("search_fio").value = '';
         document.getElementById("search_fakultet").value = '';
         document.getElementById("search_year_start").value = '';
         document.getElementById("search_year_end").value = '';
-        renderStudentsTable(studentsList);
+        cleaningTable();
+        renderStudentsTable();
         document.querySelector('#sort_birth_activity').innerHTML = 'ᐁ';
       }
 
@@ -323,14 +408,16 @@ function sort_func(sort_name) {
         document.getElementById("search_fakultet").value == '' &&
         document.getElementById("search_year_start").value == '' &&
         document.getElementById("search_year_end").value == '') {
-        renderStudentsTable(studentsList);
+        cleaningTable();
+        renderStudentsTable();
         document.querySelector('#sort_learn_activity').innerHTML = 'ᐁ';
       } else {
         document.getElementById("search_fio").value = '';
         document.getElementById("search_fakultet").value = '';
         document.getElementById("search_year_start").value = '';
         document.getElementById("search_year_end").value = '';
-        renderStudentsTable(studentsList);
+        cleaningTable();
+        renderStudentsTable();
         document.querySelector('#sort_learn_activity').innerHTML = 'ᐁ';
       }
     }
